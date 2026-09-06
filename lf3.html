@@ -1,11 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<meta name="description" content="麻雀学飞 Learn to Flap v3 - 点按=脚下叠冰块托高, 冰柱被障碍按高削短; 能量满障碍炸开自动起飞, 点按跃起躲空。仿 Bird Watch Game。" />
-<meta name="theme-color" content="#7ec8ef" />
-<title>学飞 · Learn to Flap</title>
+<html lang="zh-CN"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="description" content="麻雀学飞 Learn to Flap v3 - 点按=脚下叠冰块托高, 冰柱被障碍按高削短; 能量满障碍炸开自动起飞, 点按跃起躲空。仿 Bird Watch Game。">
+<meta name="theme-color" content="#7ec8ef">
+<title>LF3TEST:{"final":"over","ft":104,"best":104,"flights":2,"flySeen":387,"taps":37,"maxStk":2,"log":["t2 run E19 ft3 stk2 nh2 nx436 y470","t3 run E48 ft8 stk2 nh2 nx185 y470","t5 run E77 ft14 stk2 nh2 nx195 y470","t6 fly E97 ft19 stk1 nh0 nx-1 y369","t8 fly E84 ft26 stk1 nh0 nx-1 y290","t9 fly E70 ft33 stk1 nh0 nx-1 y260","t11 fly E56 ft39 stk1 nh0 nx-1 y314","t12 fly E43 ft46 stk1 nh0 nx-1 y371","t14 fly E29 ft52 stk1 nh0 nx-1 y285","t15 fly E15 ft59 stk1 nh0 nx-1 y265","t17 fly E2 ft66 stk1 nh0 nx-1 y298","t18 run E19 ft71 stk2 nh2 nx438 y470","t20 run E48 ft76 stk2 nh2 nx188 y470","t21 run E76 ft81 stk1 nh1 nx156 y506","t23 fly E97 ft87 stk2 nh0 nx-1 y344","t24 fly E84 ft94 stk2 nh0 nx-1 y261","t26 fly E70 ft101 stk2 nh0 nx-1 y277","t27 over E64 ft104 stk2 nh0 nx-1 y544","t29 over E64 ft104 stk2 nh0 nx-1 y544"],"errs":[]}</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { width:100%; height:100%; overflow:hidden; background:radial-gradient(120% 100% at 50% 0%, #3b6ea5 0%, #2a5286 100%);
@@ -17,7 +16,12 @@
 </style>
 </head>
 <body>
-<div id="stage"><canvas id="game"></canvas></div>
+<div id="stage" style="transform: scale(0.741828);"><canvas id="game" width="420" height="640" style="width: 420px; height: 640px;"></canvas></div>
+<script>
+window.__fc=null;
+window.requestAnimationFrame=function(cb){window.__fc=cb; return 1;};
+window.cancelAnimationFrame=function(){};
+</script>
 <script>
 /* ============================================================
    Learn to Flap v3 (仿 Bird Watch Game)
@@ -378,5 +382,34 @@ window.addEventListener('unhandledrejection',function(e){window.__errs.push('REJ
 requestAnimationFrame(function(now){last=now;requestAnimationFrame(frame);});
 })();
 </script>
-</body>
-</html>
+<script>
+setTimeout(function(){
+  var cv=document.getElementById('game');
+  var tl=function(lx,ly){ var r=cv.getBoundingClientRect();
+    cv.dispatchEvent(new PointerEvent('pointerdown',{clientX:r.left+lx*r.width/420,clientY:r.top+ly*r.height/640,bubbles:true})); };
+  var S=function(){ return window.__LF.get(); };
+  var drive=function(){ try{ if(window.__fc){ var f=window.__fc; window.__fc=null; f(performance.now()); } }catch(e){ window.__errs.push('DRIVE:'+e.message); } };
+  tl(210,420);
+  var log=[], taps=0, shaved=0, flySeen=0, maxStk=0, minStkSurvive=99;
+  var lastLog=0;
+  var iv=setInterval(function(){
+    drive(); var now=performance.now(); var g=S();
+    if(now>700 && now<26000){
+      if(g.state==='run'){ var need=(g.nh||0); if(g.stk<need && g.stk<12){ tl(210,300); taps++; } }
+      if(g.state==='fly'){ if(g.birdY>400){ tl(210,300); taps++; } }
+    }
+    if(g.stk>maxStk)maxStk=g.stk;
+    if(g.state==='fly')flySeen++;
+    if(now-lastLog>1500){ lastLog=now;
+      log.push('t'+Math.round(now/1000)+' '+g.state+' E'+g.energy+' ft'+g.ft+' stk'+g.stk+' nh'+(g.nh||0)+' nx'+(g.nx||-1)+' y'+g.birdY); }
+    if(now>29000){ clearInterval(iv);
+      var f2=S();
+      var res={final:f2.state,ft:f2.ft,best:Math.round(f2.best),flights:f2.flights,flySeen:flySeen,taps:taps,maxStk:maxStk,
+        log:log,errs:window.__errs};
+      document.title='LF3TEST:'+JSON.stringify(res); }
+  },40);
+},400);
+</script>
+
+
+</body></html>
