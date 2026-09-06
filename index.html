@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<meta name="description" content="学飞 Learn to Flap v4 - 点一下=脚下叠一块冰托高; 冰块碰到障碍会被按块数挡住; 能量攒满 Flying!!! 障碍炸开, 点按跃起。" />
+<meta name="description" content="Bird Watch Game 2 clone - 点按叠冰托高小鸟，收集金币，能量满格 Flying!!! 飞入天空。" />
 <meta name="theme-color" content="#7ec8ef" />
-<title>学飞 · Learn to Flap</title>
+<title>Bird Watch · Learn to Flap</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html,body { width:100%; height:100%; overflow:hidden; background:radial-gradient(120% 100% at 50% 0%, #3b6ea5 0%, #2a5286 100%);
+  html,body { width:100%; height:100%; overflow:hidden; background:#1a2a3a;
     -webkit-user-select:none; user-select:none; }
   body { display:flex; align-items:center; justify-content:center; font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif; }
   #stage { position:relative; }
@@ -20,13 +20,13 @@
 <div id="stage"><canvas id="game"></canvas></div>
 <script>
 /* ============================================================
-   Learn to Flap v4  (仿 Bird Watch Game 2)
-   · 奔跑: 点一下 = 球脚下 +1 冰块(整块弹出), 把球托高
-   · 障碍 = 视频同款冰块堆: 高度1~8格, 宽度1~2格, 每局随机,
-     越远越密越高; 球(冰柱底部)碰到障碍 → 按障碍格数被"挡住"削短
-   · 球底低于障碍顶 → 撞上结束
-   · 能量满格 → "Flying!!!" 所有障碍瞬间炸开, 天空任飞
-   · 飞行: 点=向上跃起 松手=下坠; 能量尽→优雅滑翔落地→再跑循环
+   Bird Watch Game 2 clone (v5)
+   · 奔跑: 点一下 = 小鸟脚下 +1 冰块, 把小鸟托高
+   · 障碍 = 冰崖/冰墙: 高度1~8格, 宽度1~2格
+   · 小鸟底低于障碍顶 → 撞上结束; 越过 → 按障碍格数削短冰柱
+   · 收集金币, 金币数左上显示, 拾取时飘 +1
+   · 能量满格 → "Flying!!!" 障碍炸开, 进入天空飞行
+   · 飞行: 点=向上跃起 松手=下坠; 能量尽→软着陆→再跑循环
    ============================================================ */
 (function(){
 'use strict';
@@ -43,9 +43,7 @@ window.addEventListener('resize',function(){fit();applyRes();});
 window.addEventListener('orientationchange',function(){setTimeout(function(){fit();applyRes();},120);});
 fit();applyRes();
 
-const ball=new Image(); ball.src='avatar_ball.png';
-
-const GROUND=560, BX=150, R_B=17, CUBE=38;        // 冰块边长38(仿视频块感)
+const GROUND=560, BX=150, R_B=17, CUBE=38;
 const E_MAX=100, E_RUN=17, E_FLY=10;
 const RUN_SPD=140, RUN_MAX=235;
 const G=840, FLAP=520, FALL_MAX=640;
@@ -54,28 +52,38 @@ let best=+(localStorage.getItem('lf_best')||0);
 let muted=false; if(localStorage.getItem('lf_mute')==='1')muted=true;
 
 let state='menu';
-let energy=0, ft=0, stk=0;
+let energy=0, ft=0, stk=0, coins=0;
 let birdY=GROUND-R_B, vy=0;
 let deadT=0, newBest=false, bannerT=0, flyingN=0, bobT=0;
-let obs=[], parts=[], flakes=[], clouds=[], landT=0;
+let obs=[], coinItems=[], floatTexts=[], parts=[], flakes=[], clouds=[], caveShapes=[], landT=0;
 let wingT=0;
-(function(){ for(let i=0;i<44;i++)flakes.push({x:Math.random()*W,y:Math.random()*H,s:1+Math.random()*2.4,v:.5+Math.random()*1.8,ph:Math.random()*7});
- for(let i=0;i<4;i++)clouds.push({x:Math.random()*W,y:40+Math.random()*170,s:.7+Math.random()*1.1,v:4+Math.random()*6}); })();
 
-function obsCap(){ return Math.min(8, 2+Math.floor(ft/55)); }   // 障碍最高格数随距离涨
-function obsWn(){ return 1+(Math.random()<0.25?1:0); }           // 偶尔2格宽平台
+(function(){ for(let i=0;i<44;i++)flakes.push({x:Math.random()*W,y:Math.random()*H,s:1+Math.random()*2.4,v:.5+Math.random()*1.8,ph:Math.random()*7});
+ for(let i=0;i<4;i++)clouds.push({x:Math.random()*W,y:40+Math.random()*170,s:.7+Math.random()*1.1,v:4+Math.random()*6});
+ for(let i=0;i<6;i++)caveShapes.push({x:Math.random()*W,y:Math.random()*H*0.7+50,w:40+Math.random()*80,h:60+Math.random()*120}); })();
+
+function obsCap(){ return Math.min(8, 2+Math.floor(ft/55)); }
+function obsWn(){ return 1+(Math.random()<0.25?1:0); }
 function topOf(){ return GROUND-stk*CUBE; }
 function startObs(){
-  obs=[]; let x=W+150;
+  obs=[]; coinItems=[]; let x=W+150;
   for(let i=0;i<5;i++){ const w=obsWn(),h=1+Math.floor(Math.random()*obsCap());
     obs.push({x:x,w:w,h:h,passed:false});
+    spawnCoins(x,w,h);
     x+= w*CUBE + 130 + h*CUBE*0.55 + Math.random()*120; }
 }
 let nextH=1+Math.floor(Math.random()*obsCap());
 function growObs(){
   const w=obsWn(),h=nextH;
   obs.push({x:W+40,w:w,h:h,passed:false});
+  spawnCoins(W+40,w,h);
   nextH=1+Math.floor(Math.random()*obsCap());
+}
+function spawnCoins(x,w,h){
+  const count=1+Math.floor(Math.random()*2);
+  for(let i=0;i<count;i++){
+    coinItems.push({x:x+w*CUBE*0.5+(Math.random()-.5)*30,y:GROUND-h*CUBE-35-Math.random()*60,r:9,collected:false});
+  }
 }
 
 /* ---------- 音效 ---------- */
@@ -89,14 +97,14 @@ function tone(f0,f1,dur,type,vol){ if(muted)return; const a=ac(); if(!a)return;
   o.connect(g).connect(a.destination);o.start(t);o.stop(t+dur+.03);}
 function sTap(){tone(520,940,.09,'triangle',.1);} function sCut(){tone(300,140,.13,'square',.07);}
 function sFly(){[620,880,1240].forEach(function(f,i){setTimeout(function(){tone(f,f,.16,'triangle',.1);},i*85);});}
-function sBoom(){tone(220,60,.28,'sawtooth',.13);}
+function sBoom(){tone(220,60,.28,'sawtooth',.13);} function sCoin(){tone(1200,1600,.12,'sine',.08);}
 function sDie(){tone(320,70,.42,'sawtooth',.18);} function sNew(){[660,880,1180,1400].forEach(function(f,i){setTimeout(function(){tone(f,f,.16,'triangle',.1);},i*90);});}
 
 const muteRect={x:W-46,y:10,w:36,h:36};
 
 function startGame(){
-  energy=0; ft=0; stk=0; vy=0; birdY=GROUND-R_B; deadT=0; newBest=false; bannerT=0; flyingN=0; landT=0;
-  startObs(); parts=[]; state='run';
+  energy=0; ft=0; stk=0; coins=0; vy=0; birdY=GROUND-R_B; deadT=0; newBest=false; bannerT=0; flyingN=0; landT=0;
+  startObs(); floatTexts=[]; parts=[]; state='run';
 }
 function addBlock(){
   if(stk<STK_MAX){ stk++; sTap(); bobT=1;
@@ -110,7 +118,7 @@ function launch(){
       col:['#dff3ff','#bfe6ff','#8fd0f5','#ffffff','#eaf6ff'][k%5]});
   });
   sBoom();
-  obs=[]; vy=-330; burst(BX,birdY,14);
+  obs=[]; coinItems=[]; vy=-330; burst(BX,birdY,14);
 }
 function softLand(){ state='land'; vy=0; landT=0; burst(BX,birdY,8); }
 function crash(){
@@ -124,7 +132,7 @@ function burst(x,y,n){for(let i=0;i<n;i++){const a=Math.random()*6.28,sp=50+Math
 function tapMain(){
   if(state==='menu'){startGame();return;}
   if(state==='run'){addBlock();return;}
-  if(state==='fly'){ if(energy>0){vy=-FLAP;sTap();} return; }   // 能量尽→滑翔点按无效
+  if(state==='fly'){ if(energy>0){vy=-FLAP;sTap();} return; }
   if(state==='land'){ return; }
   if(state==='over'&&deadT>0.6){startGame();return;}
 }
@@ -149,17 +157,28 @@ function tick(dt){
     const spd=Math.min(RUN_MAX,RUN_SPD+energy*0.5);
     ft+=spd*dt*0.02;
     obs.forEach(function(o){o.x-=spd*dt;});
+    coinItems.forEach(function(c){c.x-=spd*dt;});
     if(obs.length&&obs[0].x<-obs[0].w*CUBE-60)obs.shift();
+    coinItems=coinItems.filter(function(c){return c.x>-40 && !c.collected;});
     const lp=obs[obs.length-1];
     if(lp&&lp.x+lp.w*CUBE < W-(140+nextH*CUBE*0.6+Math.random()*100))growObs();
+    // 收集金币
+    for(let i=coinItems.length-1;i>=0;i--){
+      const c=coinItems[i];
+      const dx=c.x-BX, dy=c.y-birdY;
+      if(!c.collected && dx*dx+dy*dy < (R_B+c.r+4)*(R_B+c.r+4)){
+        c.collected=true; coins++; sCoin();
+        floatTexts.push({x:c.x,y:c.y-10,text:'+1',life:.8,t:0,col:'#ffd700'});
+      }
+    }
     // 球与障碍块堆
     for(let i=0;i<obs.length;i++){
       const o=obs[i];
       const oTop=GROUND-o.h*CUBE;
       const oL=o.x, oR=o.x+o.w*CUBE;
       const over = BX+R_B>oL && BX-R_B<oR;
-      if(over && stk<o.h){ crash(); return; }        // 冰柱矮于障碍 → 撞上
-      if(!o.passed && oR<BX-R_B){                     // 越过 → 下方被挡掉的冰块削掉
+      if(over && stk<o.h){ crash(); return; }
+      if(!o.passed && oR<BX-R_B){
         o.passed=true;
         const cut=Math.min(stk,o.h);
         if(cut>0){ stk-=cut; sCut();
@@ -177,8 +196,12 @@ function tick(dt){
     birdY+=vy*dt;
     if(birdY-R_B<26){birdY=R_B+26;if(vy<0)vy*=-0.25;}
     ft+=spd*dt*0.02;
-    if(Math.random()<0.35)parts.push({x:BX-8,y:birdY+6,vx:-60-Math.random()*50,vy:-6,life:.22,t:0,r:1.6+Math.random()*1.8,col:'rgba(255,255,255,.7)'});
-    if(birdY+R_B>=GROUND){ softLand(); return; }     // 落地=优雅结束本段飞行
+    // 彩虹尾迹
+    if(Math.random()<0.8){
+      const rainbow=['#ff6b6b','#ffd93d','#6bcf7f','#4d96ff','#a66cff'];
+      parts.push({x:BX-10,y:birdY+8,vx:-80-Math.random()*60,vy:-10+Math.random()*20,life:.35,t:0,r:2.2+Math.random()*2.2,col:rainbow[Math.floor(Math.random()*rainbow.length)],isTrail:true});
+    }
+    if(birdY+R_B>=GROUND){ softLand(); return; }
   } else if(state==='land'){
     vy=Math.min(230,vy+G*dt*0.65);
     birdY+=vy*dt;
@@ -189,8 +212,10 @@ function tick(dt){
     birdY+=((GROUND-R_B)-birdY)*Math.min(1,dt*8);
   } else if(state==='over'){ deadT+=dt; }
   for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.t+=dt;if(p.t>p.life){parts.splice(i,1);continue;}p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=260*dt;}
+  for(let i=floatTexts.length-1;i>=0;i--){const f=floatTexts[i];f.t+=dt;if(f.t>f.life){floatTexts.splice(i,1);continue;}f.y-=20*dt;}
   flakes.forEach(function(f){f.y+=f.v*dt*34;f.x+=Math.sin(performance.now()/900+f.ph)*12*dt;if(f.y>H+6){f.y=-6;f.x=Math.random()*W;}});
   clouds.forEach(function(c){c.x-=c.v*dt;if(c.x<-160){c.x=W+60;c.y=40+Math.random()*160;}});
+  caveShapes.forEach(function(s){s.x-=40*dt;if(s.x+s.w<0){s.x=W+20+Math.random()*100;s.y=Math.random()*H*0.7+50;}});
   if(bannerT>0)bannerT-=dt;
 }
 function frame(now){ const dt=Math.min(.05,(now-last)/1000); last=now;
@@ -201,26 +226,72 @@ function rr(x,y,w,h,r){r=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+r,y);c
 function text(s,x,y,size,color,align,bold){ctx.font=(bold?'800 ':'600 ')+size+'px "PingFang SC","Microsoft YaHei",sans-serif';ctx.textAlign=align||'center';ctx.textBaseline='middle';ctx.fillStyle=color;ctx.fillText(s,x,y);}
 function oText(s,x,y,size,color,line){ctx.font='800 '+size+'px "PingFang SC","Microsoft YaHei",sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineJoin='round';ctx.lineWidth=Math.max(3,size/8);ctx.strokeStyle=line;ctx.strokeText(s,x,y);ctx.fillStyle=color;ctx.fillText(s,x,y);}
 
-function sky(){const g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,'#aee1fb');g.addColorStop(.55,'#d8f1fe');g.addColorStop(1,'#f4fbff');
+function sky(flyAmt){
+  // 天空随飞行状态从白天雪地过渡到深蓝洞穴
+  const g=ctx.createLinearGradient(0,0,0,H);
+  if(flyAmt<0.5){
+    g.addColorStop(0,interpColor('#aee1fb','#1a2f4a',flyAmt*2));
+    g.addColorStop(.55,interpColor('#d8f1fe','#223a5a',flyAmt*2));
+    g.addColorStop(1,interpColor('#f4fbff','#2d4566',flyAmt*2));
+  } else {
+    g.addColorStop(0,'#1a2f4a');
+    g.addColorStop(.6,'#223a5a');
+    g.addColorStop(1,'#2d4566');
+  }
   ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-  const s=ctx.createRadialGradient(W*.82,86,6,W*.82,86,110);
-  s.addColorStop(0,'rgba(255,252,224,.95)');s.addColorStop(1,'rgba(255,250,220,0)');
-  ctx.fillStyle=s;ctx.fillRect(W*.82-110,86-110,220,220);}
-function cld(){clouds.forEach(function(c){ctx.save();ctx.globalAlpha=.9;ctx.translate(c.x,c.y);const s=c.s*16;
-  ctx.fillStyle='#fff';ctx.beginPath();ctx.ellipse(0,s*.3,s*1.6,s*.6,0,0,7);ctx.fill();
-  ctx.beginPath();ctx.arc(-s*.8,0,s*.6,0,7);ctx.fill();ctx.beginPath();ctx.arc(-s*.2,-s*.45,s*.8,0,7);ctx.fill();
-  ctx.beginPath();ctx.arc(s*.6,-s*.2,s*.7,0,7);ctx.fill();ctx.restore();});}
-function flakesD(){flakes.forEach(function(f){ctx.globalAlpha=.65;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(f.x,f.y,f.s,0,7);ctx.fill();});ctx.globalAlpha=1;}
-function ground(){const g=ctx.createLinearGradient(0,GROUND,0,H);
-  g.addColorStop(0,'#ffffff');g.addColorStop(.3,'#eaf6ff');g.addColorStop(1,'#b3dcf4');
+  // 太阳/月亮
+  // 视频中白天背景没有太阳，保持简洁天空
+}
+function interpColor(a,b,t){
+  const ca=hexToRgb(a), cb=hexToRgb(b);
+  const r=Math.round(ca.r+(cb.r-ca.r)*t), g=Math.round(ca.g+(cb.g-ca.g)*t), bl=Math.round(ca.b+(cb.b-ca.b)*t);
+  return 'rgb('+r+','+g+','+bl+')';
+}
+function hexToRgb(h){const n=parseInt(h.slice(1),16);return{r:(n>>16)&255,g:(n>>8)&255,b:n&255};}
+function cld(flyAmt){
+  if(flyAmt>0.3)return;
+  clouds.forEach(function(c){ctx.save();ctx.globalAlpha=.9*(1-flyAmt);ctx.translate(c.x,c.y);const s=c.s*16;
+    ctx.fillStyle='#fff';ctx.beginPath();ctx.ellipse(0,s*.3,s*1.6,s*.6,0,0,7);ctx.fill();
+    ctx.beginPath();ctx.arc(-s*.8,0,s*.6,0,7);ctx.fill();ctx.beginPath();ctx.arc(-s*.2,-s*.45,s*.8,0,7);ctx.fill();
+    ctx.beginPath();ctx.arc(s*.6,-s*.2,s*.7,0,7);ctx.fill();ctx.restore();});
+}
+function caveDraw(flyAmt){
+  if(flyAmt<0.2)return;
+  const a=(flyAmt-0.2)/0.8;
+  caveShapes.forEach(function(s){
+    ctx.globalAlpha=a*0.35;
+    ctx.fillStyle='#0d1b2a';
+    ctx.beginPath();
+    ctx.moveTo(s.x,s.y);
+    ctx.lineTo(s.x+s.w,s.y+s.h*0.3);
+    ctx.lineTo(s.x+s.w*0.7,s.y+s.h);
+    ctx.lineTo(s.x-s.w*0.2,s.y+s.h*0.8);
+    ctx.closePath();
+    ctx.fill();
+  });
+  ctx.globalAlpha=1;
+}
+function flakesD(flyAmt){
+  flakes.forEach(function(f){
+    ctx.globalAlpha=flyAmt>0.3?0.85:0.65;
+    ctx.fillStyle=flyAmt>0.3?'#a8d8ff':'#fff';
+    ctx.beginPath();ctx.arc(f.x,f.y,f.s,0,7);ctx.fill();
+  });
+  ctx.globalAlpha=1;
+}
+function ground(flyAmt){
+  const g=ctx.createLinearGradient(0,GROUND,0,H);
+  g.addColorStop(0,interpColor('#ffffff','#5a7a9a',flyAmt));
+  g.addColorStop(.3,interpColor('#eaf6ff','#4a6a8a',flyAmt));
+  g.addColorStop(1,interpColor('#b3dcf4','#3a5a7a',flyAmt));
   ctx.fillStyle=g;ctx.fillRect(0,GROUND,W,H-GROUND);
   ctx.fillStyle='rgba(150,205,240,.5)';
   for(let x=-6;x<W+8;x+=26){ctx.beginPath();ctx.arc(x,GROUND+3,11,Math.PI,0);ctx.fill();}
   ctx.fillStyle='rgba(120,185,230,.28)';
-  for(let x=-6;x<W+8;x+=52)ctx.fillRect(x,GROUND+16,26,3);}
+  for(let x=-6;x<W+8;x+=52)ctx.fillRect(x,GROUND+16,26,3);
+}
 
-/* 冰方块(柱子与障碍共用同款块, 一眼对应) */
+/* 冰方块(柱子与障碍共用同款块) */
 function cube(x,y,size,dark){
   const g=ctx.createLinearGradient(x,y,x+size,y+size);
   if(dark){ g.addColorStop(0,'#a9c7dc');g.addColorStop(.55,'#7fa3c0');g.addColorStop(1,'#5a84a6'); }
@@ -234,50 +305,166 @@ function cube(x,y,size,dark){
 function pillar(){ for(let i=0;i<stk;i++)cube(BX-CUBE/2,GROUND-(i+1)*CUBE,CUBE,false); }
 function obstacleDraw(){
   obs.forEach(function(o){
-    for(let r=0;r<o.h;r++)for(let c=0;c<o.w;c++)
-      cube(o.x+c*CUBE,GROUND-(r+1)*CUBE,CUBE,true);
+    // 冰崖主体
+    const x=o.x, w=o.w*CUBE, h=o.h*CUBE;
+    const g=ctx.createLinearGradient(x,GROUND-h,x+w,GROUND);
+    g.addColorStop(0,'#8fbcd8');g.addColorStop(.5,'#5e93b8');g.addColorStop(1,'#3f7299');
+    ctx.fillStyle=g;
+    rr(x,GROUND-h,w,h,5);ctx.fill();
+    // 冰边
+    ctx.strokeStyle='rgba(200,235,255,.8)';ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(x+2,GROUND-h+5);ctx.lineTo(x+2,GROUND-3);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x+w-2,GROUND-h+5);ctx.lineTo(x+w-2,GROUND-3);ctx.stroke();
+    // 顶部积雪
+    ctx.fillStyle='#ffffff';
+    ctx.beginPath();ctx.moveTo(x,GROUND-h);ctx.lineTo(x+w*0.2,GROUND-h-8);ctx.lineTo(x+w*0.5,GROUND-h-3);ctx.lineTo(x+w*0.8,GROUND-h-10);ctx.lineTo(x+w,GROUND-h);ctx.closePath();ctx.fill();
+    // 冰块纹理
+    for(let r=0;r<o.h;r++)for(let c=0;c<o.w;c++){
+      const cx=x+c*CUBE+4, cy=GROUND-(r+1)*CUBE+4, cs=CUBE-8;
+      ctx.strokeStyle='rgba(255,255,255,.18)';ctx.lineWidth=1;
+      ctx.strokeRect(cx,cy,cs,cs);
+    }
   });
 }
-function redBall(cx,cy){
-  ctx.fillStyle='rgba(30,60,90,.16)';
-  ctx.beginPath();ctx.ellipse(cx,GROUND-R_B+3,R_B*1.05,3.4,0,0,7);ctx.fill();
-  ctx.save();ctx.translate(cx,cy);
-  ctx.beginPath();ctx.arc(0,0,R_B*1.12,0,7);
-  ctx.fillStyle='rgba(255,255,255,.97)';ctx.fill();
-  ctx.lineWidth=Math.max(2,R_B*.1);ctx.strokeStyle='#e5b24a';ctx.stroke();
-  if(ball.complete&&ball.naturalWidth>0){
-    ctx.save();ctx.beginPath();ctx.arc(0,0,R_B*1.04,0,7);ctx.clip();
-    ctx.drawImage(ball,-R_B*1.06,-R_B*1.06,R_B*2.12,R_B*2.12);
+function coinDraw(){
+  coinItems.forEach(function(c){
+    if(c.collected)return;
+    ctx.save();ctx.translate(c.x,c.y);
+    // 外发光
+    ctx.shadowColor='rgba(255,215,0,.6)';ctx.shadowBlur=8;
+    ctx.fillStyle='#ffd700';
+    ctx.beginPath();ctx.arc(0,0,c.r,0,7);ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.strokeStyle='#ff8c00';ctx.lineWidth=2.5;ctx.stroke();
+    // 内部高光
+    ctx.fillStyle='#fff5a0';
+    ctx.beginPath();ctx.arc(-3,-3,c.r*0.4,0,7);ctx.fill();
+    // 金币符号
+    ctx.fillStyle='#b8860b';
+    ctx.font='700 10px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText('$',0,1);
     ctx.restore();
-  }
+  });
+}
+function floatTextDraw(){
+  floatTexts.forEach(function(f){
+    ctx.globalAlpha=Math.max(0,1-f.t/f.life);
+    text(f.text,f.x,f.y,16,f.col,'center',true);
+  });
+  ctx.globalAlpha=1;
+}
+function squareBird(cx,cy,isFlying){
+  const size=R_B*2.1, half=size/2;
+  // 阴影
+  ctx.fillStyle='rgba(30,60,90,.16)';
+  ctx.beginPath();ctx.ellipse(cx,GROUND-R_B+3,size*0.75,3.4,0,0,7);ctx.fill();
+
+  ctx.save();ctx.translate(cx,cy);
+  // 飞行时左右微倾
+  const tilt=isFlying?Math.sin(wingT*0.7)*0.12:0;
+  ctx.rotate(tilt);
+
+  // 身体颜色：地面紫色，飞行浅蓝白
+  const bodyColor=isFlying?'#b8d4f0':'#8b7fd4';
+  const g=ctx.createLinearGradient(-half,-half,half,half);
+  g.addColorStop(0,bodyColor);g.addColorStop(1,isFlying?'#e8f4ff':'#6b5fb8');
+  ctx.fillStyle=g;
+  rr(-half,-half,size,size,7);ctx.fill();
+  ctx.strokeStyle=isFlying?'#7aa3c8':'#5a4fa0';ctx.lineWidth=2;ctx.stroke();
+
+  // 高光
+  ctx.fillStyle='rgba(255,255,255,.35)';
+  rr(-half+4,-half+4,size-12,size*0.35,4);ctx.fill();
+
+  // 绿色翅膀
+  ctx.fillStyle='#6bcf7f';
+  ctx.beginPath();
+  const wingY=Math.sin(wingT*(isFlying?3:1))*4;
+  ctx.ellipse(half-2,2+wingY,10,6,0.4,0,7);
+  ctx.fill();
+  ctx.strokeStyle='#4aa85c';ctx.lineWidth=1.5;ctx.stroke();
+
+  // 大眼睛
+  ctx.fillStyle='#fff';
+  ctx.beginPath();ctx.arc(4,-4,8,0,7);ctx.fill();
+  ctx.strokeStyle='#444';ctx.lineWidth=1.2;ctx.stroke();
+  ctx.fillStyle='#222';
+  ctx.beginPath();ctx.arc(6,-4,4,0,7);ctx.fill();
+  ctx.fillStyle='#fff';
+  ctx.beginPath();ctx.arc(7,-6,2,0,7);ctx.fill();
+
+  // 橙色小嘴
+  ctx.fillStyle='#ff9d3c';
+  ctx.beginPath();ctx.moveTo(half-2,0);ctx.lineTo(half+10,-4);ctx.lineTo(half+10,5);ctx.closePath();ctx.fill();
+  ctx.strokeStyle='#e07b20';ctx.lineWidth=1;ctx.stroke();
+
   ctx.restore();
 }
-function partsD(){parts.forEach(function(p){ctx.globalAlpha=Math.max(0,1-p.t/p.life);ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();});ctx.globalAlpha=1;}
+function partsD(){
+  parts.forEach(function(p){
+    ctx.globalAlpha=Math.max(0,1-p.t/p.life);
+    ctx.fillStyle=p.col;
+    if(p.isTrail){
+      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();
+    } else {
+      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();
+    }
+  });
+  ctx.globalAlpha=1;
+}
 
 function hudRun(){
+  // 金币 - 左上
   ctx.fillStyle='rgba(255,255,255,.85)';
-  rr(W-150,12,136,78,14);ctx.fill();
-  ctx.strokeStyle='rgba(90,140,190,.35)';ctx.lineWidth=1.5;rr(W-150,12,136,78,14);ctx.stroke();
-  text('speed: '+(400+Math.round(energy*2)).toString().padStart(3,' '),W-82,33,15,'#2f6690','center',true);
-  const bw=104,bx0=W-144,by0=52;
-  ctx.fillStyle='rgba(47,102,144,.14)';rr(bx0,by0,bw,11,5);ctx.fill();
-  const eg=ctx.createLinearGradient(0,by0,0,by0+11);
+  rr(12,12,70,34,17);ctx.fill();
+  ctx.strokeStyle='rgba(90,140,190,.35)';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.fillStyle='#ffd700';
+  ctx.beginPath();ctx.arc(34,29,10,0,7);ctx.fill();
+  ctx.strokeStyle='#ffaa00';ctx.lineWidth=2;ctx.stroke();
+  text(String(coins),72,29,16,'#2f6690','right',true);
+
+  // speed + 能量条 - 顶部居中
+  const bw=120,bx0=W/2-bw/2,by0=40;
+  ctx.fillStyle='rgba(255,255,255,.85)';
+  rr(bx0-8,12,bw+16,58,16);ctx.fill();
+  ctx.strokeStyle='rgba(90,140,190,.35)';ctx.lineWidth=1.5;ctx.stroke();
+  text('speed: '+(400+Math.round(energy*2)).toString().padStart(3,' '),W/2,28,15,'#2f6690','center',true);
+  ctx.fillStyle='rgba(47,102,144,.14)';rr(bx0,by0,bw,10,5);ctx.fill();
+  const eg=ctx.createLinearGradient(0,by0,0,by0+10);
   eg.addColorStop(0,'#ffd98c');eg.addColorStop(1,'#ff9d3c');
-  ctx.fillStyle=eg;rr(bx0,by0,bw*energy/100,11,5);ctx.fill();
-  if(energy>97){ctx.fillStyle='rgba(255,120,50,.95)';ctx.font='800 13px "PingFang SC",sans-serif';ctx.textAlign='center';
-    ctx.fillText('能量满→Flying!!!',W-82,by0+26);}
-  oText(String(Math.round(ft))+' ft',W/2-52,42,27,'#2f6690','#fff');
-  text('点一下=叠一块冰',W/2,88,12,'rgba(47,102,144,.6)');
+  ctx.fillStyle=eg;rr(bx0,by0,bw*energy/100,10,5);ctx.fill();
+
+  // 距离 - 右上
+  ctx.fillStyle='rgba(255,255,255,.85)';
+  rr(W-110,12,98,34,17);ctx.fill();
+  ctx.strokeStyle='rgba(90,140,190,.35)';ctx.lineWidth=1.5;ctx.stroke();
+  oText(String(Math.round(ft))+' ft',W-60,29,18,'#2f6690','#fff');
 }
 function hudFly(){
+  // 金币 - 左上
+  ctx.fillStyle='rgba(255,255,255,.85)';
+  rr(12,12,70,34,17);ctx.fill();
+  ctx.strokeStyle='rgba(90,140,190,.35)';ctx.lineWidth=1.5;ctx.stroke();
+  ctx.fillStyle='#ffd700';
+  ctx.beginPath();ctx.arc(34,29,10,0,7);ctx.fill();
+  ctx.strokeStyle='#ffaa00';ctx.lineWidth=2;ctx.stroke();
+  text(String(coins),72,29,16,'#2f6690','right',true);
+
+  // Flying!!! + 能量条 - 顶部居中
   if(energy>0){
     if(bannerT>0){ctx.globalAlpha=Math.min(1,bannerT);oText('Flying!!!',W/2,86,42,'#d96c3f','#fff');ctx.globalAlpha=1;}
     else text('Flying!!!',W/2,100,16,'rgba(217,108,63,.85)','center',true);
   } else text('滑翔降落中…',W/2,100,15,'rgba(47,102,144,.75)','center',true);
-  oText(String(Math.round(ft))+' ft',W/2,40,27,'#2f6690','#fff');
+
   const bw=92,bx0=W/2-bw/2,by0=64;
   ctx.fillStyle='rgba(47,102,144,.14)';rr(bx0,by0,bw,9,4);ctx.fill();
   ctx.fillStyle='#f6a05c';rr(bx0,by0,bw*energy/100,9,4);ctx.fill();
+
+  // 距离 - 右上
+  ctx.fillStyle='rgba(255,255,255,.85)';
+  rr(W-110,12,98,34,17);ctx.fill();
+  ctx.strokeStyle='rgba(90,140,190,.35)';ctx.lineWidth=1.5;ctx.stroke();
+  oText(String(Math.round(ft))+' ft',W-60,29,18,'#2f6690','#fff');
 }
 function hud(){ctx.fillStyle='rgba(255,255,255,.75)';rr(muteRect.x,muteRect.y,muteRect.w,muteRect.h,10);ctx.fill();
   ctx.fillStyle='#2f6690';ctx.font='600 18px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
@@ -285,29 +472,29 @@ function hud(){ctx.fillStyle='rgba(255,255,255,.75)';rr(muteRect.x,muteRect.y,mu
 function menu(){
   ctx.fillStyle='rgba(255,255,255,.95)';rr(W/2-168,22,336,500,28);ctx.fill();
   ctx.strokeStyle='rgba(90,150,200,.4)';ctx.lineWidth=2.5;rr(W/2-168,22,336,500,28);ctx.stroke();
-  redBall(W/2,96);
-  text('学飞 · Learn to Flap',W/2,162,33,'#2f6690','center',true);
-  text('灵感来自 Bird Watch Game 2',W/2,190,12,'rgba(47,102,144,.65)');
+  squareBird(W/2,96,false);
+  text('Bird Watch',W/2,162,36,'#2f6690','center',true);
+  text('Learn to Flap',W/2,196,20,'#5a8ab8','center',true);
+  text('灵感来自 Bird Watch Game 2',W/2,224,12,'rgba(47,102,144,.65)');
   ctx.textAlign='center';
   ctx.font='700 15px "PingFang SC",sans-serif';ctx.fillStyle='#2f6690';
-  ctx.fillText('点一下 = 脚下叠一块冰, 把球托高',W/2,226);
+  ctx.fillText('点一下 = 脚下叠一块冰, 把小鸟托高',W/2,260);
   ctx.font='600 13.5px "PingFang SC",sans-serif';ctx.fillStyle='rgba(47,102,144,.82)';
-  ctx.fillText('冰块堆碰到障碍 → 按障碍格数被挡住',W/2,252);
+  ctx.fillText('冰柱低于障碍顶 → 撞上结束',W/2,288);
+  ctx.fillText('越过障碍 → 按障碍格数削短冰柱',W/2,314);
   ctx.font='700 15px "PingFang SC",sans-serif';ctx.fillStyle='#d96c3f';
-  ctx.fillText('球低于障碍顶 → 撞上结束',W/2,282);
-  ctx.font='700 15px "PingFang SC",sans-serif';ctx.fillStyle='#2f6690';
-  ctx.fillText('能量满格 → Flying!!! 障碍全炸开',W/2,312);
+  ctx.fillText('能量满格 → Flying!!! 障碍炸开',W/2,344);
   ctx.font='600 13.5px "PingFang SC",sans-serif';ctx.fillStyle='rgba(47,102,144,.82)';
-  ctx.fillText('飞行: 点=跃起 松手=下坠 · 能量尽自动降落',W/2,340);
+  ctx.fillText('飞行: 点=跃起 松手=下坠 · 能量耗尽自动降落',W/2,372);
   ctx.fillStyle='rgba(47,102,144,.55)';ctx.font='600 12px "PingFang SC",sans-serif';
-  ctx.fillText('🏆 最佳 '+Math.round(best)+' ft',W/2,372);
-  const by=398;const g=ctx.createLinearGradient(0,by,0,by+54);
+  ctx.fillText('🏆 最佳 '+Math.round(best)+' ft',W/2,400);
+  const by=426;const g=ctx.createLinearGradient(0,by,0,by+54);
   g.addColorStop(0,'#6fc2f0');g.addColorStop(1,'#3a8fd0');
   ctx.fillStyle=g;rr(W/2-100,by,200,54,27);ctx.fill();
   ctx.strokeStyle='rgba(255,255,255,.8)';ctx.lineWidth=2.5;rr(W/2-100,by,200,54,27);ctx.stroke();
-  text('开始游戏',W/2,by+28,'#fff',undefined,true);
+  text('开始游戏',W/2,by+28,18,'#fff','center',true);
   ctx.fillStyle='rgba(47,102,144,.5)';ctx.font='500 10.5px "PingFang SC",sans-serif';
-  ctx.fillText('障碍每局随机 · 越飞越快、越高越密',W/2,by+76);
+  ctx.fillText('收集金币 · 越飞越快 · 能量循环飞行',W/2,by+76);
   ctx.textAlign='center';
 }
 function over(){
@@ -321,24 +508,27 @@ function over(){
   text('撞到障碍啦',W/2,192+ny,32,'#2f6690',undefined,true);
   text('下次多叠几块冰~',W/2,224+ny,13,'rgba(47,102,144,.7)');
   oText(Math.round(ft)+' ft',W/2,262+ny,40,'#d96c3f','#fff');
-  text('最佳 '+Math.round(best)+' ft',W/2,306+ny,14,'rgba(47,102,144,.8)');
-  const by=332+ny;
+  text('金币 '+coins,W/2,302+ny,14,'rgba(47,102,144,.8)');
+  text('最佳 '+Math.round(best)+' ft',W/2,324+ny,14,'rgba(47,102,144,.8)');
+  const by=348+ny;
   const g=ctx.createLinearGradient(0,by,0,by+50);
   g.addColorStop(0,'#6fc2f0');g.addColorStop(1,'#3a8fd0');
   ctx.fillStyle=g;rr(W/2-105,by,210,50,25);ctx.fill();
-  text('再飞一次',W/2,by+26,'#fff',undefined,true);
+  text('再飞一次',W/2,by+26,18,'#fff','center',true);
   ctx.textAlign='center';
 }
 function draw(){
+  const flyAmt=(state==='fly'||state==='land')?1:0;
   ctx.clearRect(0,0,W,H);
-  sky();cld();flakesD();
-  obstacleDraw();
+  sky(flyAmt);cld(flyAmt);caveDraw(flyAmt);flakesD(flyAmt);
+  obstacleDraw();coinDraw();
   partsD();
   if(state!=='menu')pillar();
   const onG=(state==='run'||state==='land'||state==='menu');
   const cy=onG? birdY+(state==='run'?Math.sin(wingT)*1.4+bobT*5:0) : birdY;
-  redBall(BX,cy);
-  ground();
+  squareBird(BX,cy,state==='fly'||state==='land');
+  ground(flyAmt);
+  floatTextDraw();
   if(state==='run')hudRun();
   if(state==='fly'||state==='land')hudFly();
   hud();
@@ -350,7 +540,7 @@ function draw(){
 window.__LF={get:function(){var nx=-1,nh=0;
  for(var k=0;k<obs.length;k++){ if(!obs[k].passed&&(nx<0||obs[k].x<nx)){nx=obs[k].x;nh=obs[k].h;} }
  return {state:state,ft:Math.round(ft),energy:Math.round(energy),stk:stk,birdY:Math.round(birdY),
-   obs:obs.length,nx:Math.round(nx),nh:nh,best:Math.round(best),flights:flyingN,errs:window.__errs||[]};}};
+   coins:coins,obs:obs.length,nx:Math.round(nx),nh:nh,best:Math.round(best),flights:flyingN,errs:window.__errs||[]};}};
 window.__errs=[];
 window.addEventListener('error',function(e){window.__errs.push('ERR:'+e.message);});
 window.addEventListener('unhandledrejection',function(e){window.__errs.push('REJ:'+String(e.reason));});
