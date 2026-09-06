@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-<meta name="description" content="麻雀学飞 Learn to Flap v3 - 点按=脚下叠冰块托高, 冰柱被障碍按高削短; 能量满障碍炸开自动起飞, 点按跃起躲空。仿 Bird Watch Game。" />
+<meta name="description" content="学飞 Learn to Flap v4 - 点一下=脚下叠一块冰托高; 冰块碰到障碍会被按块数挡住; 能量攒满 Flying!!! 障碍炸开, 点按跃起。" />
 <meta name="theme-color" content="#7ec8ef" />
 <title>学飞 · Learn to Flap</title>
 <style>
@@ -20,12 +20,13 @@
 <div id="stage"><canvas id="game"></canvas></div>
 <script>
 /* ============================================================
-   Learn to Flap v3 (仿 Bird Watch Game)
-   · 奔跑: 点按=脚下+1冰块托高; 冰柱下部被石柱障碍按高度削短
-   · 石柱矮于鸟=越过但被削格(鸟下落); 石柱高于鸟=撞上结束
-   · 能量自动攒满 → "Flying!!!" 所有障碍瞬间炸开, 天空任飞
-   · 飞行: 点=向上跃起, 松手=下坠; 触地即败; 能量尽自动滑翔降落
-   · 鸟=红色圆球; 障碍随机模式, 越飞越快越高
+   Learn to Flap v4  (仿 Bird Watch Game 2)
+   · 奔跑: 点一下 = 球脚下 +1 冰块(整块弹出), 把球托高
+   · 障碍 = 视频同款冰块堆: 高度1~8格, 宽度1~2格, 每局随机,
+     越远越密越高; 球(冰柱底部)碰到障碍 → 按障碍格数被"挡住"削短
+   · 球底低于障碍顶 → 撞上结束
+   · 能量满格 → "Flying!!!" 所有障碍瞬间炸开, 天空任飞
+   · 飞行: 点=向上跃起 松手=下坠; 能量尽→优雅滑翔落地→再跑循环
    ============================================================ */
 (function(){
 'use strict';
@@ -42,48 +43,42 @@ window.addEventListener('resize',function(){fit();applyRes();});
 window.addEventListener('orientationchange',function(){setTimeout(function(){fit();applyRes();},120);});
 fit();applyRes();
 
-/* 红色圆球 */
 const ball=new Image(); ball.src='avatar_ball.png';
 
-/* ---------- 常量 ---------- */
-const GROUND=560, BX=132, R_B=18, BALL=36;      // 冰块边长36(仿视频观感)
-const E_MAX=100, E_RUN=19, E_FLY=9;
-const RUN_SPD=150, RUN_MAX=215;
-const G=820, FLAP=500, FALL_MAX=600;
-const STK_MAX=12;
+const GROUND=560, BX=150, R_B=17, CUBE=38;        // 冰块边长38(仿视频块感)
+const E_MAX=100, E_RUN=17, E_FLY=10;
+const RUN_SPD=140, RUN_MAX=235;
+const G=840, FLAP=520, FALL_MAX=640;
+const STK_MAX=13;
 let best=+(localStorage.getItem('lf_best')||0);
 let muted=false; if(localStorage.getItem('lf_mute')==='1')muted=true;
 
-/* ---------- 状态 ---------- */
-let state='menu';            // menu|run|fly|land|over
-let energy=0, ft=0, stk=0, dropT=0;
-let birdY=GROUND-R_B, vy=0, blockRise=0;
-let deadT=0, newBest=false, bannerT=0, flyingN=0, cleared=0;
-let obs=[], parts=[], flakes=[], clouds=[];
-let wingT=0, bob=0, tx=0;
+let state='menu';
+let energy=0, ft=0, stk=0;
+let birdY=GROUND-R_B, vy=0;
+let deadT=0, newBest=false, bannerT=0, flyingN=0, bobT=0;
+let obs=[], parts=[], flakes=[], clouds=[], landT=0;
+let wingT=0;
 (function(){ for(let i=0;i<44;i++)flakes.push({x:Math.random()*W,y:Math.random()*H,s:1+Math.random()*2.4,v:.5+Math.random()*1.8,ph:Math.random()*7});
  for(let i=0;i<4;i++)clouds.push({x:Math.random()*W,y:40+Math.random()*170,s:.7+Math.random()*1.1,v:4+Math.random()*6}); })();
 
-function topOf(){ return GROUND-stk*BALL; }
-
-/* 难度: 石柱高度范围随距离增大, 每局随机 */
-function obsCap(){ return Math.min(9, 2+Math.floor(ft/70)); }
-function obsH(){ return 1+Math.floor(Math.random()*obsCap()); }
-function obsW(){ return 24+Math.floor(Math.random()*18); }   // 窄~宽随机
-function spawnObs(){
-  const h=obsH();
-  obs.push({x:W+30, w:obsW(), h:h, shaved:false, passed:false});
-}
+function obsCap(){ return Math.min(8, 2+Math.floor(ft/55)); }   // 障碍最高格数随距离涨
+function obsWn(){ return 1+(Math.random()<0.25?1:0); }           // 偶尔2格宽平台
+function topOf(){ return GROUND-stk*CUBE; }
 function startObs(){
-  obs=[]; let x=W+170;
-  for(let i=0;i<4;i++){
-    const w=obsW(), h=obsH();
-    obs.push({x:x,w:w,h:h,shaved:false,passed:false});
-    x+= w + 120 + h*BALL*0.55 + Math.random()*110;
-  }
+  obs=[]; let x=W+150;
+  for(let i=0;i<5;i++){ const w=obsWn(),h=1+Math.floor(Math.random()*obsCap());
+    obs.push({x:x,w:w,h:h,passed:false});
+    x+= w*CUBE + 130 + h*CUBE*0.55 + Math.random()*120; }
+}
+let nextH=1+Math.floor(Math.random()*obsCap());
+function growObs(){
+  const w=obsWn(),h=nextH;
+  obs.push({x:W+40,w:w,h:h,passed:false});
+  nextH=1+Math.floor(Math.random()*obsCap());
 }
 
-/* ---------- 音频 ---------- */
+/* ---------- 音效 ---------- */
 let AC=null;
 function ac(){ if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}} if(AC&&AC.state==='suspended')AC.resume(); return AC; }
 function tone(f0,f1,dur,type,vol){ if(muted)return; const a=ac(); if(!a)return;
@@ -92,52 +87,49 @@ function tone(f0,f1,dur,type,vol){ if(muted)return; const a=ac(); if(!a)return;
   o.frequency.exponentialRampToValueAtTime(Math.max(f1,1),t+dur);
   g.gain.setValueAtTime(vol||.12,t);g.gain.exponentialRampToValueAtTime(.0001,t+dur);
   o.connect(g).connect(a.destination);o.start(t);o.stop(t+dur+.03);}
-function sTap(){tone(500,900,.08,'triangle',.09);} function sShave(){tone(300,150,.12,'square',.06);}
-function sFly(){[620,880,1240].forEach(function(f,i){setTimeout(function(){tone(f,f,.15,'triangle',.1);},i*80);});}
-function sBoom(){tone(220,60,.25,'sawtooth',.12);}
-function sDie(){tone(320,70,.4,'sawtooth',.18);} function sNew(){[660,880,1180,1400].forEach(function(f,i){setTimeout(function(){tone(f,f,.15,'triangle',.1);},i*90);});}
+function sTap(){tone(520,940,.09,'triangle',.1);} function sCut(){tone(300,140,.13,'square',.07);}
+function sFly(){[620,880,1240].forEach(function(f,i){setTimeout(function(){tone(f,f,.16,'triangle',.1);},i*85);});}
+function sBoom(){tone(220,60,.28,'sawtooth',.13);}
+function sDie(){tone(320,70,.42,'sawtooth',.18);} function sNew(){[660,880,1180,1400].forEach(function(f,i){setTimeout(function(){tone(f,f,.16,'triangle',.1);},i*90);});}
 
 const muteRect={x:W-46,y:10,w:36,h:36};
 
-/* ---------- 控制 ---------- */
 function startGame(){
-  energy=0; ft=0; stk=0; vy=0; birdY=GROUND-R_B; blockRise=0; dropT=0;
-  deadT=0; newBest=false; bannerT=0; flyingN=0; cleared=0;
+  energy=0; ft=0; stk=0; vy=0; birdY=GROUND-R_B; deadT=0; newBest=false; bannerT=0; flyingN=0; landT=0;
   startObs(); parts=[]; state='run';
 }
 function addBlock(){
-  if(stk<STK_MAX){ stk++; blockRise=1; sTap();
-    for(let i=0;i<6;i++)parts.push({x:BX+(Math.random()-.5)*BALL,y:topOf()-4,vx:(Math.random()-.5)*80,vy:-30-Math.random()*70,life:.25+Math.random()*.2,t:0,r:1.5+Math.random()*2,col:'#dff3ff'}); }
+  if(stk<STK_MAX){ stk++; sTap(); bobT=1;
+    for(let i=0;i<7;i++)parts.push({x:BX+(Math.random()-.5)*CUBE,y:topOf()-3,vx:(Math.random()-.5)*90,vy:-40-Math.random()*80,life:.22+Math.random()*.18,t:0,r:1.6+Math.random()*2.2,col:'#e9f9ff'}); }
 }
 function launch(){
-  state='fly'; bannerT=2.2; flyingN++; sFly();
-  // 所有障碍瞬间炸开
+  state='fly'; bannerT=2.3; flyingN++; sFly();
   obs.forEach(function(o){
-    for(let k=0;k<10;k++)parts.push({x:o.x+Math.random()*o.w,y:GROUND-o.h*BALL+Math.random()*o.h*BALL,
-      vx:(Math.random()-.5)*300,vy:-150-Math.random()*220,life:.5+Math.random()*.4,t:0,r:2+Math.random()*3.4,
-      col:['#9fb4c8','#7d93ad','#c3d2e2','#ffffff'][k%4]});
+    for(let k=0;k<12;k++)parts.push({x:o.x+Math.random()*o.w*CUBE,y:GROUND-(o.h-1)*CUBE+Math.random()*o.h*CUBE,
+      vx:(Math.random()-.5)*320,vy:-160-Math.random()*240,life:.5+Math.random()*.45,t:0,r:3+Math.random()*4.4,
+      col:['#dff3ff','#bfe6ff','#8fd0f5','#ffffff','#eaf6ff'][k%5]});
   });
   sBoom();
-  obs=[]; vy=-320; burst(BX,birdY,12);
+  obs=[]; vy=-330; burst(BX,birdY,14);
 }
-function landSoft(){ state='land'; vy=0; burst(BX,birdY,8); }
+function softLand(){ state='land'; vy=0; landT=0; burst(BX,birdY,8); }
 function crash(){
-  state='over'; deadT=0; sDie(); burst(BX,birdY,20);
+  state='over'; deadT=0; sDie(); burst(BX,birdY,22);
   try{ localStorage.setItem('lf_last',String(Math.round(ft)));
-    if(ft>best){best=ft;newBest=true;localStorage.setItem('lf_best',String(Math.round(best)));setTimeout(sNew,200);} }catch(e){}
+    if(ft>best){best=ft;newBest=true;localStorage.setItem('lf_best',String(Math.round(best)));setTimeout(sNew,250);} }catch(e){}
 }
-function burst(x,y,n){for(let i=0;i<n;i++){const a=Math.random()*6.28,sp=50+Math.random()*240;
-  parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-70,life:.35+Math.random()*.3,t:0,r:2+Math.random()*3,col:Math.random()<.5?'#fff':'#dff3ff'});}}
+function burst(x,y,n){for(let i=0;i<n;i++){const a=Math.random()*6.28,sp=50+Math.random()*250;
+  parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp-70,life:.35+Math.random()*.32,t:0,r:2+Math.random()*3.2,col:Math.random()<.5?'#fff':'#dff3ff'});}}
 
 function tapMain(){
   if(state==='menu'){startGame();return;}
   if(state==='run'){addBlock();return;}
-  if(state==='fly'){ if(energy>0){vy=-FLAP;sTap();} return; }   // 能量尽→滑翔, 点按无效
+  if(state==='fly'){ if(energy>0){vy=-FLAP;sTap();} return; }   // 能量尽→滑翔点按无效
+  if(state==='land'){ return; }
   if(state==='over'&&deadT>0.6){startGame();return;}
 }
 function handleDown(x,y){
   if(x>=muteRect.x&&x<=muteRect.x+muteRect.w&&y>=muteRect.y&&y<=muteRect.y+muteRect.h){muted=!muted;localStorage.setItem('lf_mute',muted?'1':'0');return;}
-  if(state==='over'&&deadT<=0.6)return;
   tapMain();
 }
 canvas.addEventListener('pointerdown',function(e){ac();
@@ -151,58 +143,52 @@ window.addEventListener('keydown',function(e){
 let last=performance.now(),acc=0; const STEP=1/240;
 function tick(dt){
   wingT+=dt*12;
+  if(bobT>0)bobT=Math.max(0,bobT-dt*3.2);
   if(state==='run'){
     energy=Math.min(E_MAX,energy+E_RUN*dt);
-    const spd=Math.min(RUN_MAX,RUN_SPD+energy*0.45);
-    tx+=spd*dt; ft+=spd*dt*0.02;
-    bob=Math.sin(performance.now()/130)*2.4;
-    // 障碍移动
+    const spd=Math.min(RUN_MAX,RUN_SPD+energy*0.5);
+    ft+=spd*dt*0.02;
     obs.forEach(function(o){o.x-=spd*dt;});
-    if(obs.length&&obs[0].x<-obs[0].w-60)obs.shift();
+    if(obs.length&&obs[0].x<-obs[0].w*CUBE-60)obs.shift();
     const lp=obs[obs.length-1];
-    if(!lp){ spawnObs(); }
-    else {
-      const nh=obsH();                       // 下一根的高度决定它的间距(给足爬升时间)
-      if(lp.x+lp.w < W-(150+nh*BALL*0.6+Math.random()*120)){ spawnObs(); }
-    }
-    // 球与柱子: 重叠时若冰柱不够高(球底低于柱顶)→撞; 柱子完全越过后按柱高削短冰柱
+    if(lp&&lp.x+lp.w*CUBE < W-(140+nextH*CUBE*0.6+Math.random()*100))growObs();
+    // 球与障碍块堆
     for(let i=0;i<obs.length;i++){
       const o=obs[i];
-      const oTop=GROUND-o.h*BALL;
-      const over = BX+R_B>o.x && BX-R_B<o.x+o.w;
-      if(over && stk<o.h){ crash(); return; }        // 柱高于球底 → 撞上
-      if(!o.shaved && o.x+o.w<BX-R_B){                // 已越过 → 底部h块被柱挡住, 削短
-        o.shaved=true;
+      const oTop=GROUND-o.h*CUBE;
+      const oL=o.x, oR=o.x+o.w*CUBE;
+      const over = BX+R_B>oL && BX-R_B<oR;
+      if(over && stk<o.h){ crash(); return; }        // 冰柱矮于障碍 → 撞上
+      if(!o.passed && oR<BX-R_B){                     // 越过 → 下方被挡掉的冰块削掉
+        o.passed=true;
         const cut=Math.min(stk,o.h);
-        if(cut>0){ stk-=cut; sShave();
-          for(let k=0;k<10;k++)parts.push({x:BX+(Math.random()-.5)*BALL,y:GROUND-cut*BALL+Math.random()*cut*BALL,
-            vx:(Math.random()-.5)*170,vy:-60-Math.random()*130,life:.45,t:0,r:2+Math.random()*2.6,col:'#dff3ff'});
+        if(cut>0){ stk-=cut; sCut();
+          for(let k=0;k<12;k++)parts.push({x:BX+(Math.random()-.5)*CUBE,y:GROUND-cut*CUBE+Math.random()*cut*CUBE,
+            vx:(Math.random()-.5)*180,vy:-70-Math.random()*140,life:.45,t:0,r:2.4+Math.random()*3,col:'#dff3ff'});
         }
       }
     }
-    // 平滑: 球贴到冰块柱顶
-    birdY += ((topOf()-R_B)-birdY)*Math.min(1,dt*14);
+    birdY += ((topOf()-R_B)-birdY)*Math.min(1,dt*16);
     if(energy>=E_MAX){ launch(); }
   } else if(state==='fly'){
-    const spd=Math.min(RUN_MAX+70, RUN_MAX+ft*0.05);
+    const spd=Math.min(320,RUN_MAX+40+ft*0.06);
     energy=Math.max(0,energy-E_FLY*dt);
     vy=Math.min(FALL_MAX,vy+G*dt);
     birdY+=vy*dt;
-    if(birdY-R_B<26){birdY=R_B+26;if(vy<0)vy*=-0.3;}
-    tx+=spd*dt; ft+=spd*dt*0.02;
-    if(Math.random()<0.4)parts.push({x:BX-8,y:birdY+6,vx:-50-Math.random()*40,vy:-8,life:.25,t:0,r:1.5+Math.random()*1.5,col:'rgba(255,255,255,.75)'});
-    if(birdY+R_B>=GROUND){
-      if(energy<=0) landSoft(); else { crash(); return; }
-    }
+    if(birdY-R_B<26){birdY=R_B+26;if(vy<0)vy*=-0.25;}
+    ft+=spd*dt*0.02;
+    if(Math.random()<0.35)parts.push({x:BX-8,y:birdY+6,vx:-60-Math.random()*50,vy:-6,life:.22,t:0,r:1.6+Math.random()*1.8,col:'rgba(255,255,255,.7)'});
+    if(birdY+R_B>=GROUND){ softLand(); return; }     // 落地=优雅结束本段飞行
   } else if(state==='land'){
-    vy=Math.min(240,vy+G*dt*0.7);
+    vy=Math.min(230,vy+G*dt*0.65);
     birdY+=vy*dt;
-    if(birdY>=GROUND-R_B){birdY=GROUND-R_B;vy=0;energy=0;state='run';startObs();bannerT=0;}
+    landT+=dt;
+    if(birdY>=GROUND-R_B){birdY=GROUND-R_B;vy=0;}
+    if(landT>0.55){ state='run'; energy=0; stk=0; startObs(); bannerT=0; }
   } else if(state==='menu'){
-    bob=Math.sin(performance.now()/330)*3;
     birdY+=((GROUND-R_B)-birdY)*Math.min(1,dt*8);
   } else if(state==='over'){ deadT+=dt; }
-  for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.t+=dt;if(p.t>p.life){parts.splice(i,1);continue;}p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=250*dt;}
+  for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.t+=dt;if(p.t>p.life){parts.splice(i,1);continue;}p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=260*dt;}
   flakes.forEach(function(f){f.y+=f.v*dt*34;f.x+=Math.sin(performance.now()/900+f.ph)*12*dt;if(f.y>H+6){f.y=-6;f.x=Math.random()*W;}});
   clouds.forEach(function(c){c.x-=c.v*dt;if(c.x<-160){c.x=W+60;c.y=40+Math.random()*160;}});
   if(bannerT>0)bannerT-=dt;
@@ -216,54 +202,48 @@ function text(s,x,y,size,color,align,bold){ctx.font=(bold?'800 ':'600 ')+size+'p
 function oText(s,x,y,size,color,line){ctx.font='800 '+size+'px "PingFang SC","Microsoft YaHei",sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineJoin='round';ctx.lineWidth=Math.max(3,size/8);ctx.strokeStyle=line;ctx.strokeText(s,x,y);ctx.fillStyle=color;ctx.fillText(s,x,y);}
 
 function sky(){const g=ctx.createLinearGradient(0,0,0,H);
-  g.addColorStop(0,'#aee1fb');g.addColorStop(.55,'#d8f1fe');g.addColorStop(1,'#f2fbff');
+  g.addColorStop(0,'#aee1fb');g.addColorStop(.55,'#d8f1fe');g.addColorStop(1,'#f4fbff');
   ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
-  const s=ctx.createRadialGradient(W*.8,86,6,W*.8,86,110);
+  const s=ctx.createRadialGradient(W*.82,86,6,W*.82,86,110);
   s.addColorStop(0,'rgba(255,252,224,.95)');s.addColorStop(1,'rgba(255,250,220,0)');
-  ctx.fillStyle=s;ctx.fillRect(W*.8-110,86-110,220,220);
-  ctx.fillStyle='rgba(200,225,248,.8)';ctx.beginPath();ctx.moveTo(0,GROUND);
-  for(let x=0;x<=W;x+=14)ctx.lineTo(x,GROUND-60-Math.sin(x*.018+7)*18);
-  ctx.lineTo(W,GROUND);ctx.fill();}
+  ctx.fillStyle=s;ctx.fillRect(W*.82-110,86-110,220,220);}
 function cld(){clouds.forEach(function(c){ctx.save();ctx.globalAlpha=.9;ctx.translate(c.x,c.y);const s=c.s*16;
   ctx.fillStyle='#fff';ctx.beginPath();ctx.ellipse(0,s*.3,s*1.6,s*.6,0,0,7);ctx.fill();
   ctx.beginPath();ctx.arc(-s*.8,0,s*.6,0,7);ctx.fill();ctx.beginPath();ctx.arc(-s*.2,-s*.45,s*.8,0,7);ctx.fill();
   ctx.beginPath();ctx.arc(s*.6,-s*.2,s*.7,0,7);ctx.fill();ctx.restore();});}
-function flakesD(){flakes.forEach(function(f){ctx.globalAlpha=.7;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(f.x,f.y,f.s,0,7);ctx.fill();});ctx.globalAlpha=1;}
+function flakesD(){flakes.forEach(function(f){ctx.globalAlpha=.65;ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(f.x,f.y,f.s,0,7);ctx.fill();});ctx.globalAlpha=1;}
 function ground(){const g=ctx.createLinearGradient(0,GROUND,0,H);
   g.addColorStop(0,'#ffffff');g.addColorStop(.3,'#eaf6ff');g.addColorStop(1,'#b3dcf4');
   ctx.fillStyle=g;ctx.fillRect(0,GROUND,W,H-GROUND);
   ctx.fillStyle='rgba(150,205,240,.5)';
   for(let x=-6;x<W+8;x+=26){ctx.beginPath();ctx.arc(x,GROUND+3,11,Math.PI,0);ctx.fill();}
-  ctx.fillStyle='rgba(120,185,230,.3)';const off=-(tx%52);
-  for(let x=off;x<W;x+=52)ctx.fillRect(x,GROUND+18,26,3);}
+  ctx.fillStyle='rgba(120,185,230,.28)';
+  for(let x=-6;x<W+8;x+=52)ctx.fillRect(x,GROUND+16,26,3);}
 
-function iceBlock(x,y,size){
+/* 冰方块(柱子与障碍共用同款块, 一眼对应) */
+function cube(x,y,size,dark){
   const g=ctx.createLinearGradient(x,y,x+size,y+size);
-  g.addColorStop(0,'#e9f9ff');g.addColorStop(.5,'#c3ecff');g.addColorStop(1,'#93d6fa');
-  ctx.fillStyle=g;rr(x,y,size,size,5);ctx.fill();
-  ctx.strokeStyle='rgba(120,190,235,.95)';ctx.lineWidth=2;rr(x,y,size,size,5);ctx.stroke();
-  ctx.fillStyle='rgba(255,255,255,.8)';rr(x+6,y+6,size-13,size*.26,4);ctx.fill();
+  if(dark){ g.addColorStop(0,'#a9c7dc');g.addColorStop(.55,'#7fa3c0');g.addColorStop(1,'#5a84a6'); }
+  else{ g.addColorStop(0,'#effaff');g.addColorStop(.5,'#cfefff');g.addColorStop(1,'#9cdcfb'); }
+  ctx.fillStyle=g; rr(x,y,size,size,4); ctx.fill();
+  ctx.strokeStyle=dark?'rgba(40,72,104,.95)':'rgba(110,180,230,.9)'; ctx.lineWidth=2; rr(x,y,size,size,4); ctx.stroke();
+  ctx.fillStyle=dark?'rgba(255,255,255,.28)':'rgba(255,255,255,.85)';
+  ctx.fillRect(x+5,y+5,size-11,size*.3);
+  if(dark){ctx.fillStyle='rgba(20,45,70,.25)';ctx.fillRect(x+size-6,y+size-6,6,6);}
 }
-function pillar(){
-  for(let i=0;i<stk;i++)iceBlock(BX-BALL/2,GROUND-(i+1)*BALL,BALL);
-}
+function pillar(){ for(let i=0;i<stk;i++)cube(BX-CUBE/2,GROUND-(i+1)*CUBE,CUBE,false); }
 function obstacleDraw(){
   obs.forEach(function(o){
-    const top=GROUND-o.h*BALL;
-    const g=ctx.createLinearGradient(o.x,0,o.x+o.w,0);
-    g.addColorStop(0,'#8fa5bc');g.addColorStop(.5,'#6d839c');g.addColorStop(1,'#54708e');
-    ctx.fillStyle=g;rr(o.x,top,o.w,GROUND-top,4);ctx.fill();
-    ctx.strokeStyle='rgba(40,60,85,.8)';ctx.lineWidth=2;rr(o.x,top,o.w,GROUND-top,4);ctx.stroke();
-    ctx.fillStyle='rgba(255,255,255,.5)';ctx.fillRect(o.x+3,top+4,4,GROUND-top-8);
-    ctx.fillStyle='#c8d6e4';rr(o.x-2,top,o.w+4,9,4);ctx.fill();
+    for(let r=0;r<o.h;r++)for(let c=0;c<o.w;c++)
+      cube(o.x+c*CUBE,GROUND-(r+1)*CUBE,CUBE,true);
   });
 }
-function redBall(cx,cy,roll){
-  ctx.fillStyle='rgba(30,60,90,.15)';
-  ctx.beginPath();ctx.ellipse(cx,cy+R_B+3,R_B*.95,3,0,0,7);ctx.fill();
-  ctx.save();ctx.translate(cx,cy);ctx.rotate(roll||0);
-  ctx.beginPath();ctx.arc(0,0,R_B*1.13,0,7);
-  ctx.fillStyle='rgba(255,255,255,.96)';ctx.fill();
+function redBall(cx,cy){
+  ctx.fillStyle='rgba(30,60,90,.16)';
+  ctx.beginPath();ctx.ellipse(cx,GROUND-R_B+3,R_B*1.05,3.4,0,0,7);ctx.fill();
+  ctx.save();ctx.translate(cx,cy);
+  ctx.beginPath();ctx.arc(0,0,R_B*1.12,0,7);
+  ctx.fillStyle='rgba(255,255,255,.97)';ctx.fill();
   ctx.lineWidth=Math.max(2,R_B*.1);ctx.strokeStyle='#e5b24a';ctx.stroke();
   if(ball.complete&&ball.naturalWidth>0){
     ctx.save();ctx.beginPath();ctx.arc(0,0,R_B*1.04,0,7);ctx.clip();
@@ -275,26 +255,29 @@ function redBall(cx,cy,roll){
 function partsD(){parts.forEach(function(p){ctx.globalAlpha=Math.max(0,1-p.t/p.life);ctx.fillStyle=p.col;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();});ctx.globalAlpha=1;}
 
 function hudRun(){
-  ctx.fillStyle='rgba(255,255,255,.82)';
-  rr(W-150,12,136,74,14);ctx.fill();
-  ctx.strokeStyle='rgba(90,140,190,.35)';ctx.lineWidth=1.5;rr(W-150,12,136,74,14);ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,.85)';
+  rr(W-150,12,136,78,14);ctx.fill();
+  ctx.strokeStyle='rgba(90,140,190,.35)';ctx.lineWidth=1.5;rr(W-150,12,136,78,14);ctx.stroke();
   text('speed: '+(400+Math.round(energy*2)).toString().padStart(3,' '),W-82,33,15,'#2f6690','center',true);
-  const bw=104,bx0=W-144,by0=50;
-  ctx.fillStyle='rgba(47,102,144,.15)';rr(bx0,by0,bw,10,5);ctx.fill();
-  ctx.fillStyle='#6fc2f0';rr(bx0,by0,bw*energy/100,10,5);ctx.fill();
-  ctx.fillStyle='rgba(47,102,144,.7)';ctx.font='600 11px "PingFang SC",sans-serif';ctx.textAlign='center';
-  ctx.fillText('满格 → 障碍炸开起飞!',W-82,by0+24);
-  oText(String(Math.round(ft))+' ft',W/2-52,40,26,'#2f6690','#fff');
+  const bw=104,bx0=W-144,by0=52;
+  ctx.fillStyle='rgba(47,102,144,.14)';rr(bx0,by0,bw,11,5);ctx.fill();
+  const eg=ctx.createLinearGradient(0,by0,0,by0+11);
+  eg.addColorStop(0,'#ffd98c');eg.addColorStop(1,'#ff9d3c');
+  ctx.fillStyle=eg;rr(bx0,by0,bw*energy/100,11,5);ctx.fill();
+  if(energy>97){ctx.fillStyle='rgba(255,120,50,.95)';ctx.font='800 13px "PingFang SC",sans-serif';ctx.textAlign='center';
+    ctx.fillText('能量满→Flying!!!',W-82,by0+26);}
+  oText(String(Math.round(ft))+' ft',W/2-52,42,27,'#2f6690','#fff');
+  text('点一下=叠一块冰',W/2,88,12,'rgba(47,102,144,.6)');
 }
 function hudFly(){
   if(energy>0){
-    if(bannerT>0){ctx.globalAlpha=Math.min(1,bannerT);oText('Flying!!!',W/2,86,40,'#d96c3f','#fff');ctx.globalAlpha=1;}
-    else text('Flying!!!',W/2,100,15,'rgba(217,108,63,.85)','center',true);
-  } else text('能量耗尽 · 滑翔降落',W/2,100,15,'rgba(47,102,144,.75)','center',true);
-  oText(String(Math.round(ft))+' ft',W/2,40,26,'#2f6690','#fff');
-  const bw=90,bx0=W/2-bw/2,by0=64;
-  ctx.fillStyle='rgba(47,102,144,.15)';rr(bx0,by0,bw,8,4);ctx.fill();
-  ctx.fillStyle='#f6a05c';rr(bx0,by0,bw*energy/100,8,4);ctx.fill();
+    if(bannerT>0){ctx.globalAlpha=Math.min(1,bannerT);oText('Flying!!!',W/2,86,42,'#d96c3f','#fff');ctx.globalAlpha=1;}
+    else text('Flying!!!',W/2,100,16,'rgba(217,108,63,.85)','center',true);
+  } else text('滑翔降落中…',W/2,100,15,'rgba(47,102,144,.75)','center',true);
+  oText(String(Math.round(ft))+' ft',W/2,40,27,'#2f6690','#fff');
+  const bw=92,bx0=W/2-bw/2,by0=64;
+  ctx.fillStyle='rgba(47,102,144,.14)';rr(bx0,by0,bw,9,4);ctx.fill();
+  ctx.fillStyle='#f6a05c';rr(bx0,by0,bw*energy/100,9,4);ctx.fill();
 }
 function hud(){ctx.fillStyle='rgba(255,255,255,.75)';rr(muteRect.x,muteRect.y,muteRect.w,muteRect.h,10);ctx.fill();
   ctx.fillStyle='#2f6690';ctx.font='600 18px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
@@ -302,45 +285,44 @@ function hud(){ctx.fillStyle='rgba(255,255,255,.75)';rr(muteRect.x,muteRect.y,mu
 function menu(){
   ctx.fillStyle='rgba(255,255,255,.95)';rr(W/2-168,22,336,500,28);ctx.fill();
   ctx.strokeStyle='rgba(90,150,200,.4)';ctx.lineWidth=2.5;rr(W/2-168,22,336,500,28);ctx.stroke();
-  redBall(W/2,96,0);
-  text('学飞 · Learn to Flap',W/2,160,34,'#2f6690','center',true);
-  text('灵感来自 Bird Watch Game',W/2,188,12,'rgba(47,102,144,.65)');
+  redBall(W/2,96);
+  text('学飞 · Learn to Flap',W/2,162,33,'#2f6690','center',true);
+  text('灵感来自 Bird Watch Game 2',W/2,190,12,'rgba(47,102,144,.65)');
   ctx.textAlign='center';
-  ctx.font='700 15.5px "PingFang SC",sans-serif';ctx.fillStyle='#2f6690';
+  ctx.font='700 15px "PingFang SC",sans-serif';ctx.fillStyle='#2f6690';
   ctx.fillText('点一下 = 脚下叠一块冰, 把球托高',W/2,226);
-  ctx.font='600 13.5px "PingFang SC",sans-serif';ctx.fillStyle='rgba(47,102,144,.8)';
-  ctx.fillText('冰柱碰到石柱, 会被按柱高削短(球下落)',W/2,252);
-  ctx.font='700 15.5px "PingFang SC",sans-serif';ctx.fillStyle='#d96c3f';
-  ctx.fillText('球低于柱顶 → 撞上结束',W/2,282);
+  ctx.font='600 13.5px "PingFang SC",sans-serif';ctx.fillStyle='rgba(47,102,144,.82)';
+  ctx.fillText('冰块堆碰到障碍 → 按障碍格数被挡住',W/2,252);
+  ctx.font='700 15px "PingFang SC",sans-serif';ctx.fillStyle='#d96c3f';
+  ctx.fillText('球低于障碍顶 → 撞上结束',W/2,282);
   ctx.font='700 15px "PingFang SC",sans-serif';ctx.fillStyle='#2f6690';
   ctx.fillText('能量满格 → Flying!!! 障碍全炸开',W/2,312);
-  ctx.font='600 13.5px "PingFang SC",sans-serif';ctx.fillStyle='rgba(47,102,144,.8)';
-  ctx.fillText('飞行: 点=跃起 松手=下坠 · 触地即败',W/2,340);
-  ctx.fillText('能量尽自动降落 → 循环再飞',W/2,364);
+  ctx.font='600 13.5px "PingFang SC",sans-serif';ctx.fillStyle='rgba(47,102,144,.82)';
+  ctx.fillText('飞行: 点=跃起 松手=下坠 · 能量尽自动降落',W/2,340);
   ctx.fillStyle='rgba(47,102,144,.55)';ctx.font='600 12px "PingFang SC",sans-serif';
-  ctx.fillText('🏆 最佳 '+Math.round(best)+' ft',W/2,398);
-  const by=424;const g=ctx.createLinearGradient(0,by,0,by+54);
+  ctx.fillText('🏆 最佳 '+Math.round(best)+' ft',W/2,372);
+  const by=398;const g=ctx.createLinearGradient(0,by,0,by+54);
   g.addColorStop(0,'#6fc2f0');g.addColorStop(1,'#3a8fd0');
   ctx.fillStyle=g;rr(W/2-100,by,200,54,27);ctx.fill();
   ctx.strokeStyle='rgba(255,255,255,.8)';ctx.lineWidth=2.5;rr(W/2-100,by,200,54,27);ctx.stroke();
   text('开始游戏',W/2,by+28,'#fff',undefined,true);
-  ctx.fillStyle='rgba(47,102,144,.5)';ctx.font='500 10px "PingFang SC",sans-serif';
-  ctx.fillText('障碍每局随机 · 越飞越快、柱子越高',W/2,by+74);
+  ctx.fillStyle='rgba(47,102,144,.5)';ctx.font='500 10.5px "PingFang SC",sans-serif';
+  ctx.fillText('障碍每局随机 · 越飞越快、越高越密',W/2,by+76);
   ctx.textAlign='center';
 }
 function over(){
   if(deadT<=0.45)return;
   ctx.fillStyle='rgba(20,45,75,.45)';ctx.fillRect(0,0,W,H);
-  const ny=newBest?34:0;
+  const ny=newBest?32:0;
   ctx.fillStyle='rgba(255,255,255,.96)';
-  rr(W/2-150,150,300,newBest?280:246,26);ctx.fill();
-  ctx.strokeStyle='rgba(240,160,90,.8)';ctx.lineWidth=2.5;rr(W/2-150,150,300,newBest?280:246,26);ctx.stroke();
-  if(newBest){ctx.fillStyle='#f6c15c';rr(W/2-84,164,168,30,15);ctx.fill();text('★ 新纪录! ★',W/2,179,'#7a4a00',undefined,true);}
-  text('撞到石柱啦',W/2,196+ny,32,'#2f6690',undefined,true);
-  text('下次叠高一点~',W/2,228+ny,13,'rgba(47,102,144,.7)');
-  oText(Math.round(ft)+' ft',W/2,266+ny,40,'#d96c3f','#fff');
-  text('最佳 '+Math.round(best)+' ft',W/2,310+ny,14,'rgba(47,102,144,.8)');
-  const by=336+ny;
+  rr(W/2-150,150,300,newBest?268:234,26);ctx.fill();
+  ctx.strokeStyle='rgba(240,160,90,.8)';ctx.lineWidth=2.5;rr(W/2-150,150,300,newBest?268:234,26);ctx.stroke();
+  if(newBest){ctx.fillStyle='#f6c15c';rr(W/2-84,162,168,30,15);ctx.fill();text('★ 新纪录! ★',W/2,177,'#7a4a00',undefined,true);}
+  text('撞到障碍啦',W/2,192+ny,32,'#2f6690',undefined,true);
+  text('下次多叠几块冰~',W/2,224+ny,13,'rgba(47,102,144,.7)');
+  oText(Math.round(ft)+' ft',W/2,262+ny,40,'#d96c3f','#fff');
+  text('最佳 '+Math.round(best)+' ft',W/2,306+ny,14,'rgba(47,102,144,.8)');
+  const by=332+ny;
   const g=ctx.createLinearGradient(0,by,0,by+50);
   g.addColorStop(0,'#6fc2f0');g.addColorStop(1,'#3a8fd0');
   ctx.fillStyle=g;rr(W/2-105,by,210,50,25);ctx.fill();
@@ -352,12 +334,10 @@ function draw(){
   sky();cld();flakesD();
   obstacleDraw();
   partsD();
-  if(state!=='menu'){ pillar(); }
-  // 球
+  if(state!=='menu')pillar();
   const onG=(state==='run'||state==='land'||state==='menu');
-  const cy=onG? birdY+bob : birdY;
-  const roll= state==='fly'? wingT*.12 : 0;
-  redBall(BX,cy,roll);
+  const cy=onG? birdY+(state==='run'?Math.sin(wingT)*1.4+bobT*5:0) : birdY;
+  redBall(BX,cy);
   ground();
   if(state==='run')hudRun();
   if(state==='fly'||state==='land')hudFly();
@@ -368,7 +348,7 @@ function draw(){
 
 /* ---------- 自测钩子 ---------- */
 window.__LF={get:function(){var nx=-1,nh=0;
- for(var k=0;k<obs.length;k++){ if(obs[k].x+obs[k].w>BX-10&&(nx<0||obs[k].x<nx)){nx=obs[k].x;nh=obs[k].h;} }
+ for(var k=0;k<obs.length;k++){ if(!obs[k].passed&&(nx<0||obs[k].x<nx)){nx=obs[k].x;nh=obs[k].h;} }
  return {state:state,ft:Math.round(ft),energy:Math.round(energy),stk:stk,birdY:Math.round(birdY),
    obs:obs.length,nx:Math.round(nx),nh:nh,best:Math.round(best),flights:flyingN,errs:window.__errs||[]};}};
 window.__errs=[];
